@@ -76,7 +76,7 @@ void loop() {
     }
 
     if (transponderCode) {
-        ir.sendRC5(transponderCode);
+        ir.sendSony38(transponderCode,kSony12Bits,0);
     }
 
 
