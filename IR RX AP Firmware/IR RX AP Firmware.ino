@@ -17,10 +17,10 @@
 // Note: GPIO 16 won't work on the ESP8266 as it does not have interrupts.
 const uint16_t kRecv1Pin = 14; //D5
 const char* ssid = "MiniRC";
+
 const char* password = "MiniRC12";
 const uint16_t udpPort = 1212;
-
-const uint16_t availableIds[] = { 0x06FE, 0x03A4 };
+const uint16_t availableIds[] = { 0x06FE, 0x03A4, 0x1212, 0xACAB };
 int foundIndex = -1;
 char buffer[50];
 
@@ -73,11 +73,15 @@ void loop() {
             Udp.write(id, 2);
             Udp.endPacket();
             idToIp[nextAvailableIndex] = cb;
+            Serial.println("Device ID");
+            Serial.print(id[0], HEX);
+            Serial.print(id[1], HEX);
             nextAvailableIndex++;
         }
     }
     if (irrecv1.decode(&results)) {
-        foundIndex = FindIndex(availableIds, 2, results.value) ;
+        Serial.println("Got signal");
+        foundIndex = FindIndex(availableIds, 4, results.value) ;
         if (foundIndex != -1) {
             sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
             Serial.print(buffer);
