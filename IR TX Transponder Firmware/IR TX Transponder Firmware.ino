@@ -63,8 +63,10 @@ void loop() {
 
             for (unsigned int i = 0; i < 3; i++) {
                 FastLED.showColor(CRGB::White);
+                digitalWrite(IR_LED_PIN, HIGH);
                 delay(20);
                 FastLED.showColor(CRGB::Black);
+                digitalWrite(IR_LED_PIN, LOW);
                 delay(100);
             }
         }if (len == 3) {
@@ -77,6 +79,8 @@ void loop() {
 
     if (transponderCode) {
         ir.sendSony38(transponderCode,kSony12Bits,0);
+        delay(40);
+        //ir.sendNEC(0x00FF4AB5, 32, 0);
     }
 
 

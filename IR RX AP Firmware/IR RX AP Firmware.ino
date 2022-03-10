@@ -45,8 +45,7 @@ void setup() {
     Serial.print("Setting soft-AP ... ");
     Serial.println(WiFi.softAP(ssid, password) ? "Ready" : "Failed!");
 
-    clientConnected = WiFi.onSoftAPModeStationConnected([](const WiFiEventSoftAPModeStationConnected& event)
-        {
+    clientConnected = WiFi.onSoftAPModeStationConnected([](const WiFiEventSoftAPModeStationConnected& event){
             Serial.println("Station connected");
             sprintf(lastMac, "%02X:%02X:%02X:%02X:%02X:%02X", MAC2STR(event.mac));
             Serial.printf("Mac adress: %s\n", lastMac);
@@ -56,7 +55,59 @@ void setup() {
     while (!Serial)  // Wait for the serial connection to be establised.
         delay(50);
 
+
     irrecv1.enableIRIn();  // Start the receiver1
+}
+
+void  ircode(decode_results* results)
+{
+    // Panasonic has an Address
+    if (results->decode_type == PANASONIC) {
+        //Serial.print(results->panasonicAddress, HEX);
+        //Serial.print(":");
+    }
+
+    // Print Code
+    Serial.print(results->value, HEX);
+}
+
+//+=============================================================================
+// Display encoding type
+//
+void  encoding(decode_results* results) {
+
+    switch (results->decode_type) {
+    
+        case NEC:          Serial.print("NEC");           break;
+        case SONY:         Serial.print("SONY");          break;
+        case RC5:          Serial.print("RC5");           break;
+        case RC6:          Serial.print("RC6");           break;
+        case DISH:         Serial.print("DISH");          break;
+        case SHARP:        Serial.print("SHARP");         break;
+        case JVC:          Serial.print("JVC");           break;
+        case SANYO:        Serial.print("SANYO");         break;
+        case MITSUBISHI:   Serial.print("MITSUBISHI");    break;
+        case SAMSUNG:      Serial.print("SAMSUNG");       break;
+        case LG:           Serial.print("LG");            break;
+        case WHYNTER:      Serial.print("WHYNTER");       break;
+        case AIWA_RC_T501: Serial.print("AIWA_RC_T501");  break;
+        case PANASONIC:    Serial.print("PANASONIC");     break;
+        case UNKNOWN:
+        default:           Serial.print("UNKNOWN");       break;
+    }
+}
+
+void  dumpInfo(decode_results* results){
+    // Show Encoding standard
+    Serial.print("Encoding : ");
+    encoding(results);
+
+    // Show Code & length
+    Serial.print(", Code : ");
+    ircode(results);
+    Serial.print(" (");
+    Serial.print(results->bits, DEC);
+    Serial.println(" bits)");
 }
 
 
@@ -80,13 +131,15 @@ void loop() {
         }
     }
     if (irrecv1.decode(&results)) {
-        Serial.println("Got signal");
-        foundIndex = FindIndex(availableIds, 4, results.value) ;
-        if (foundIndex != -1) {
-            sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
-            Serial.print(buffer);
+        if (results.decode_type == SONY) {
+            foundIndex = FindIndex(availableIds, 4, results.value);
+            if (foundIndex != -1) {
+                sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
+                Serial.print(buffer);
+            }
+        } else {
+            dumpInfo(&results);
         }
-        foundIndex = -1;
         irrecv1.resume();  // Receive the next value
     }
 
