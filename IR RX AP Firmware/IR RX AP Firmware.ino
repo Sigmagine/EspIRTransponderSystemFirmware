@@ -137,7 +137,16 @@ void loop() {
                 sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
                 Serial.print(buffer);
             }
-        } else {
+        }
+        else if (results.decode_type == NEC) {
+            uint16_t decodedValue = (((results.value >> 24) & 0xFF) << 8) + ((results.value >> 8) & 0xFF);
+            foundIndex = FindIndex(availableIds, 4, decodedValue);
+            if (foundIndex != -1) {
+                sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
+                Serial.print(buffer);
+            }
+        }
+        else {
             dumpInfo(&results);
         }
         irrecv1.resume();  // Receive the next value
