@@ -31,6 +31,14 @@ WiFiUDP UDP;
 unsigned char packet[255];
 IRsend ir(IR_LED_PIN,false,true);
 
+const uint16_t rawData[] = {
+    4000, 2000,
+    2000, 1000,
+    3000, 2000,
+    1000, 1000
+};
+
+
 // the setup function runs once when you press reset or power the board
 void setup() {
 
@@ -87,7 +95,10 @@ void loop() {
     if (transponderCode) {
         //ir.sendSony38(transponderCode,kSony12Bits,0);
         //delay(80);
-        ir.sendNEC(transponderCodeNec, 32, 0);
+        //ir.sendNEC(transponderCodeNec, 32, 0);
+        ir.sendRaw(rawData, sizeof(rawData) / sizeof(rawData[0]), 38); // Note the approach used to automatically calculate the size of the array.
+        delay(20);
+
     }
 
 
