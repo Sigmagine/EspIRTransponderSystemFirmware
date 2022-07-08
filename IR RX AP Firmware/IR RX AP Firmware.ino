@@ -10,6 +10,7 @@
 #include <IRutils.h>
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
+#include <map>
 
 
 // An IR detector/demodulator is connected to GPIO pin 14(D5 on a NodeMCU
@@ -24,7 +25,11 @@ const uint16_t availableIds[] = { 0x06FE, 0x03A4, 0x1212, 0xACAB };
 int foundIndex = -1;
 char buffer[50];
 
-String idToIp[2];
+String idToIp[2] = { "", "" };
+std::map<String, unsigned int> ipToId;
+std::vector<unsigned long>idLastMillis;
+unsigned long cooldownMs = 1000;
+
 unsigned int nextAvailableIndex = 0;
 
 String serialReadString;
@@ -34,8 +39,49 @@ bool waitingDHCP = false;
 char lastMac[18];
 WiFiUDP Udp;
 
-IRrecv irrecv1(kRecv1Pin);
+//IRrecv irrecv1(kRecv1Pin);
 decode_results results;
+
+size_t currentIndex = 0;
+bool lastState = LOW;
+unsigned long lastMicros = 0;
+const size_t bufferSize = 7;
+unsigned long timeBuffer[bufferSize];
+uint16_t delayMs = 20;
+
+struct IRParam {
+    uint16_t delay;
+    uint16_t pulsesCount;
+    const uint16_t pulsesWidths[11];
+};
+
+const IRParam irParams[2] = {
+    {
+        20,
+        bufferSize,
+        {
+            3000,   1000,
+            3000,   1000,
+            1000,   3000,
+            1000,   0,
+            0,      0,
+            0
+        }
+    },
+    {
+        20,
+        bufferSize,
+        {
+            4000,   2000,
+            2000,   1000,
+            3000,   2000,
+            1000,   0,
+            0,      0,
+            0
+        }
+    }
+};
+const uint16_t tolerance = 500;
 
 
 void setup() {
@@ -56,7 +102,8 @@ void setup() {
         delay(50);
 
 
-    irrecv1.enableIRIn();  // Start the receiver1
+    pinMode(kRecv1Pin, INPUT);
+    //irrecv1.enableIRIn();  // Start the receiver1
 }
 
 void  ircode(decode_results* results)
@@ -69,6 +116,11 @@ void  ircode(decode_results* results)
 
     // Print Code
     Serial.print(results->value, HEX);
+    Serial.print("\nRaw buffer : ");
+    for (size_t i = 0; i < results->rawlen; i++) {
+        Serial.print(results->rawbuf[i]);
+        Serial.print('-');
+    }
 }
 
 //+=============================================================================
@@ -117,39 +169,86 @@ void loop() {
         if (deviceIP(lastMac, cb)) {
             Serial.println("Ip address :");
             Serial.println(cb); //do something
+            unsigned int indexToUse = nextAvailableIndex;
+            auto foundId = ipToId.find(cb);
+            if (foundId != ipToId.end()) {
+                Serial.println("Ip already registered !");
+                indexToUse = foundId->second;
+            }
             Udp.beginPacket(cb.c_str(), 1212);
-            uint8_t id[2];
-            id[0] = (availableIds[nextAvailableIndex] & 0xFF);
-            id[1] = (availableIds[nextAvailableIndex] >> 8) & 0xFF;
-            Udp.write(id, 2);
+            Udp.write((char*)&irParams[indexToUse], sizeof(IRParam));
             Udp.endPacket();
-            idToIp[nextAvailableIndex] = cb;
+
             Serial.println("Device ID");
-            Serial.print(id[0], HEX);
-            Serial.print(id[1], HEX);
-            nextAvailableIndex++;
+            Serial.print(indexToUse);
+
+            if (nextAvailableIndex == indexToUse) {
+                idToIp[indexToUse] = cb;
+                ipToId.emplace(cb, indexToUse);
+                idLastMillis.push_back(0);
+                nextAvailableIndex++;
+            }
         }
     }
-    if (irrecv1.decode(&results)) {
-        if (results.decode_type == SONY) {
-            foundIndex = FindIndex(availableIds, 4, results.value);
-            if (foundIndex != -1) {
-                sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
-                Serial.print(buffer);
+    //if (irrecv1.decode(&results)) {
+    //    if (results.decode_type == SONY) {
+    //        foundIndex = FindIndex(availableIds, 4, results.value);
+    //        if (foundIndex != -1) {
+    //            sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
+    //            Serial.print(buffer);
+    //        }
+    //    }
+    //    else if (results.decode_type == NEC) {
+    //        uint16_t decodedValue = (((results.value >> 24) & 0xFF) << 8) + ((results.value >> 8) & 0xFF);
+    //        foundIndex = FindIndex(availableIds, 4, decodedValue);
+    //        if (foundIndex != -1) {
+    //            sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
+    //            Serial.print(buffer);
+    //        }
+    //    }
+    //    else {
+    //        dumpInfo(&results);
+    //    }
+    //    irrecv1.resume();  // Receive the next value
+    //}
+    if (digitalRead(kRecv1Pin) != lastState) {
+        lastState = !lastState;
+        if (lastMicros != 0) {
+            unsigned long currentTime = micros() - lastMicros;
+            if (currentTime < 500) return; //Skipping this one, too low
+            if (currentTime < 4500) {
+                timeBuffer[currentIndex] = micros() - lastMicros;
+                currentIndex = ++currentIndex%bufferSize;
+                /*if (currentIndex == 0) {
+                    Serial.print("\nTime buffer : ");
+                    for (size_t i = 0; i < bufferSize; i++) {
+                        Serial.print(timeBuffer[i]);
+                        Serial.print("-");
+                    }
+                }*/
+                int foundIndex = compareSequence();
+                if (foundIndex != -1) {
+                    if (millis() - idLastMillis[foundIndex] > 1000) {
+                        sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
+                        Serial.print(buffer);
+                    }
+                    idLastMillis[foundIndex] = millis();
+                    //Serial.print("Found a match with a sequence ! (");
+                    //Serial.print(foundIndex);
+                    //Serial.print(")\n");
+                    //Serial.print(millis());
+
+                    ///*Serial.print("\nTime buffer : ");
+                    //for (size_t i = 0; i < bufferSize; i++) {
+                    //    Serial.print(timeBuffer[i]);
+                    //    Serial.print("-");
+                    //}*/
+                    //Serial.println();
+                    //Serial.flush();
+                }
             }
         }
-        else if (results.decode_type == NEC) {
-            uint16_t decodedValue = (((results.value >> 24) & 0xFF) << 8) + ((results.value >> 8) & 0xFF);
-            foundIndex = FindIndex(availableIds, 4, decodedValue);
-            if (foundIndex != -1) {
-                sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
-                Serial.print(buffer);
-            }
-        }
-        else {
-            dumpInfo(&results);
-        }
-        irrecv1.resume();  // Receive the next value
+        lastMicros = micros();
     }
 
     if (Serial.available() > 0) {
@@ -192,6 +291,23 @@ void loop() {
         }
     }
     //delay(10);
+}
+int compareSequence() {
+    bool error = false;
+    for (size_t j = 0; j < (sizeof(irParams) / sizeof(*irParams)); j++) {
+        for (size_t k = 0; k < irParams[j].pulsesCount; k++) {
+            for (size_t i = (currentIndex + k) % irParams[j].pulsesCount, step = 0; step < irParams[j].pulsesCount; step++) {
+                if (irParams[j].pulsesWidths[step] < timeBuffer[i] - tolerance || irParams[j].pulsesWidths[step] > timeBuffer[i] + tolerance) {
+                    error = true;
+                    break;
+                }
+                i = (i + 1) % irParams[j].pulsesCount;
+            }
+            if (!error) return j; // if we escape from deeper loop without an error that's a match, so returning the index of the match
+            error = false; //else trying next sequence
+        }
+    }
+    return -1;
 }
 
 void sendColor(String ip, int r, int g, int b) {
