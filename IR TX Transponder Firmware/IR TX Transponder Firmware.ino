@@ -31,12 +31,30 @@ WiFiUDP UDP;
 unsigned char packet[255];
 IRsend ir(IR_LED_PIN,false,true);
 
+struct IRParams {
+    uint16_t delay = 20;
+    uint16_t pulsesCount = 0;
+    uint16_t pulsesWidths[11] = {
+    0,0,0,0,0,0,0,0,0,0,0
+    };
+};
+
+IRParams irParams;
+
+const uint16_t rawData[] = {
+    3000, 1000,
+    3000, 1000,
+    1000, 3000,
+    1000
+};
+
+ /*
 const uint16_t rawData[] = {
     4000, 2000,
     2000, 1000,
     3000, 2000,
-    1000, 1000
-};
+    1000
+};*/
 
 
 // the setup function runs once when you press reset or power the board
@@ -84,20 +102,48 @@ void loop() {
                 digitalWrite(IR_LED_PIN, LOW);
                 delay(100);
             }
-        }if (len == 3) {
+        }else if (len == 3) {
             
             Serial.println("Color received");
             //FastLED.showColor(CRGB(packet[0], packet[1], packet[2]));
+        }else if (len == sizeof(irParams)) {
+
+            memcpy(&irParams, packet, sizeof(irParams));
+
+            if (irParams.pulsesCount > sizeof(irParams.pulsesWidths) / sizeof(irParams.pulsesWidths[0]))irParams.pulsesCount = sizeof(irParams.pulsesWidths) / sizeof(irParams.pulsesWidths[0]);
+
+            Serial.print("Ir params received - delay : ");
+            Serial.print(irParams.delay);
+            Serial.print(" pulses : ");
+            for (unsigned int i = 0; i < irParams.pulsesCount; i++) {
+                Serial.print(irParams.pulsesWidths[i]);
+                Serial.print(", ");
+            }
+            Serial.println();
+
+            for (unsigned int i = 0; i < 3; i++) {
+                //FastLED.showColor(CRGB::White);
+                digitalWrite(IR_LED_PIN, HIGH);
+                delay(20);
+                //FastLED.showColor(CRGB::Black);
+                digitalWrite(IR_LED_PIN, LOW);
+                delay(100);
+            }
+           
+        } else {
+            Serial.print("Received ");
+            Serial.print(len);
+            Serial.println(" bytes packet");
         }
         
     }
 
-    if (transponderCode) {
+    if (irParams.pulsesCount>0) {
         //ir.sendSony38(transponderCode,kSony12Bits,0);
         //delay(80);
         //ir.sendNEC(transponderCodeNec, 32, 0);
-        ir.sendRaw(rawData, sizeof(rawData) / sizeof(rawData[0]), 38); // Note the approach used to automatically calculate the size of the array.
-        delay(20);
+        ir.sendRaw(irParams.pulsesWidths, irParams.pulsesCount, 38); // Note the approach used to automatically calculate the size of the array.
+        delay(irParams.delay);
 
     }
 
