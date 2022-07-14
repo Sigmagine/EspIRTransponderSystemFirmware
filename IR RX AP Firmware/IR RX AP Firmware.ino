@@ -11,18 +11,26 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <map>
+#include <Adafruit_NeoPixel.h>
 
+
+//FastLED
+const size_t numLeds = 16;
+const uint8_t pinLed = 0;
+Adafruit_NeoPixel leds = Adafruit_NeoPixel(numLeds, pinLed, NEO_GRB + NEO_KHZ800);
+unsigned long lastLedMillis = 0;
 
 // An IR detector/demodulator is connected to GPIO pin 14(D5 on a NodeMCU
 // board).
 // Note: GPIO 16 won't work on the ESP8266 as it does not have interrupts.
 const size_t nbOfReceivers = 2;
-const uint16_t kRecvPins[nbOfReceivers] = {
+const uint8_t kRecvPins[nbOfReceivers] = {
     14, 2
 }; //D5 - D4
 
-const size_t bufferSize = 7;
+const size_t bufferSize = 5;
 unsigned long recvBuffers[nbOfReceivers][bufferSize];
+bool recvValues[nbOfReceivers][bufferSize];
 bool lastStates[nbOfReceivers] = { LOW };
 unsigned long lastMicros[nbOfReceivers] = { 0 };
 
@@ -60,10 +68,15 @@ struct IRParam {
     const uint16_t pulsesWidths[11];
 };
 
+const uint32_t carsColors[3] = {
+    leds.Color(32, 62, 117),
+    leds.Color(62, 117, 32),
+    leds.Color(117, 32, 62)
+};
 
 const IRParam irParams[3] = {
     {
-        17,
+        20,
         bufferSize,
         {
             3000,   1000,
@@ -75,7 +88,7 @@ const IRParam irParams[3] = {
         }
     },
     {
-        17,
+        20,
         bufferSize,
         {
             4000,   2000,
@@ -87,7 +100,7 @@ const IRParam irParams[3] = {
         }
     },
     {
-        17,
+        20,
         bufferSize,
         {
             1000,   5000,
@@ -125,9 +138,9 @@ void setup() {
             }
             if (!found)
                 lastMacs.push_back(currentMacAddress);
-
-            Serial.print("Number of waiting devices : ");
-            Serial.println(lastMacs.size());
+            leds.fill(leds.Color(255, 0, 0), 0, numLeds);
+            leds.show();
+            lastLedMillis = 0;
         });
 
     clientDisconnected = WiFi.onSoftAPModeStationDisconnected([](const WiFiEventSoftAPModeStationDisconnected& event) {
@@ -143,6 +156,23 @@ void setup() {
                     break;
                 }
             }
+            if (lastMacs.size() == 0) {
+                leds.clear();
+                leds.show();
+                delay(250);
+                leds.fill(leds.Color(255, 128, 0), 0, numLeds);
+                leds.show();
+                delay(250);
+                leds.clear();
+                leds.show();
+                delay(250);
+                leds.fill(leds.Color(255, 128, 0), 0, numLeds);
+                leds.show();
+                delay(250);
+                leds.clear();
+                leds.show();
+                delay(250);
+            }
         });
 
     while (!Serial)  // Wait for the serial connection to be establised.
@@ -151,16 +181,28 @@ void setup() {
     for (size_t i = 0; i < nbOfReceivers; i++) {
         pinMode(kRecvPins[i], INPUT);
     }
+    leds.begin();
+    leds.show();
+    leds.setBrightness(255);
 }
 
 
 void loop() {
+    if (lastLedMillis != 0 && millis() - lastLedMillis > 500) {
+        leds.clear();
+        leds.show();
+        lastLedMillis = 0;
+    }
     if (lastMacs.size() > 0) {
         String cb;
         Serial.print("Remaing device to assign : ");
         Serial.println(lastMacs.size());
         if (deviceIP(lastMacs.back(), cb)) {
             lastMacs.erase(lastMacs.end());
+            if (lastMacs.size() == 0) {
+                leds.fill(leds.Color(0, 255, 0), 0, numLeds);
+                leds.show();
+            }
             Serial.println("Ip address :");
             Serial.println(cb); //do something
             unsigned int indexToUse = nextAvailableIndex;
@@ -190,19 +232,24 @@ void loop() {
     }
 
     for (size_t i = 0; i < nbOfReceivers; i++) {
-        if (digitalRead(kRecvPins[i]) != lastStates[i]) {
-            lastStates[i] = !lastStates[i];
+        bool state = digitalRead(kRecvPins[i]);
+        if (state != lastStates[i]) {
+            lastStates[i] = state;
             if (lastMicros[i] != 0) {
                 unsigned long currentTime = micros() - lastMicros[i];
                 if (currentTime < 500) return; //Skipping this one, too low
-                if (currentTime < 4500) {
-                    recvBuffers[i][currentIndex] = micros() - lastMicros[i];
+                if (currentTime < 5500) {
+                    recvBuffers[i][currentIndex] = currentTime;
+                    recvValues[i][currentIndex] = state;
                     currentIndex = ++currentIndex % bufferSize;
                     int foundIndex = compareSequence(i);
                     if (foundIndex != -1) {
                         if (millis() - idLastMillis[foundIndex] > 1000) {
                             sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
                             Serial.print(buffer);
+                            leds.fill(carsColors[foundIndex], 0, numLeds);
+                            leds.show();
+                            lastLedMillis = millis();
                         }
                         idLastMillis[foundIndex] = millis();
                     }
@@ -257,7 +304,10 @@ int compareSequence(size_t receiverIndex) {
     for (size_t j = 0; j < (sizeof(irParams) / sizeof(*irParams)); j++) {
         for (size_t k = 0; k < irParams[j].pulsesCount; k++) {
             for (size_t i = (currentIndex + k) % irParams[j].pulsesCount, step = 0; step < irParams[j].pulsesCount; step++) {
-                if (irParams[j].pulsesWidths[step] < recvBuffers[receiverIndex][i] - tolerance || irParams[j].pulsesWidths[step] > recvBuffers[receiverIndex][i] + tolerance) {
+                if (irParams[j].pulsesWidths[step] < recvBuffers[receiverIndex][i] - tolerance || 
+                    irParams[j].pulsesWidths[step] > recvBuffers[receiverIndex][i] + tolerance ||
+                    recvValues[receiverIndex][i] == (step%2)) {
+
                     error = true;
                     break;
                 }
