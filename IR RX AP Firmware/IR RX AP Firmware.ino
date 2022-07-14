@@ -16,13 +16,20 @@
 // An IR detector/demodulator is connected to GPIO pin 14(D5 on a NodeMCU
 // board).
 // Note: GPIO 16 won't work on the ESP8266 as it does not have interrupts.
-const uint16_t kRecv1Pin = 14; //D5
-const char* ssid = "MiniRC";
+const size_t nbOfReceivers = 2;
+const uint16_t kRecvPins[nbOfReceivers] = {
+    14, 2
+}; //D5 - D4
 
+const size_t bufferSize = 7;
+unsigned long recvBuffers[nbOfReceivers][bufferSize];
+bool lastStates[nbOfReceivers] = { LOW };
+unsigned long lastMicros[nbOfReceivers] = { 0 };
+
+const char* ssid = "MiniRC";
 const char* password = "MiniRC12";
 const uint16_t udpPort = 1212;
-const uint16_t availableIds[] = { 0x06FE, 0x03A4, 0x1212, 0xACAB };
-int foundIndex = -1;
+
 char buffer[50];
 
 String idToIp[2] = { "", "" };
@@ -34,20 +41,18 @@ unsigned int nextAvailableIndex = 0;
 
 String serialReadString;
 
+//Is this really needed ?
 WiFiEventHandler clientConnected;
-bool waitingDHCP = false;
-char lastMac[18];
+WiFiEventHandler clientDisconnected;
+
+struct macAddress {
+    uint8 value[6];
+};
+std::vector<macAddress> lastMacs;
+
 WiFiUDP Udp;
 
-//IRrecv irrecv1(kRecv1Pin);
-decode_results results;
-
 size_t currentIndex = 0;
-bool lastState = LOW;
-unsigned long lastMicros = 0;
-const size_t bufferSize = 7;
-unsigned long timeBuffer[bufferSize];
-uint16_t delayMs = 20;
 
 struct IRParam {
     uint16_t delay;
@@ -55,9 +60,10 @@ struct IRParam {
     const uint16_t pulsesWidths[11];
 };
 
-const IRParam irParams[2] = {
+
+const IRParam irParams[3] = {
     {
-        20,
+        17,
         bufferSize,
         {
             3000,   1000,
@@ -69,13 +75,25 @@ const IRParam irParams[2] = {
         }
     },
     {
-        20,
+        17,
         bufferSize,
         {
             4000,   2000,
             2000,   1000,
             3000,   2000,
             1000,   0,
+            0,      0,
+            0
+        }
+    },
+    {
+        17,
+        bufferSize,
+        {
+            1000,   5000,
+            1000,   2000,
+            2000,   1000,
+            2000,   0,
             0,      0,
             0
         }
@@ -93,80 +111,56 @@ void setup() {
 
     clientConnected = WiFi.onSoftAPModeStationConnected([](const WiFiEventSoftAPModeStationConnected& event){
             Serial.println("Station connected");
+            char lastMac[18];
             sprintf(lastMac, "%02X:%02X:%02X:%02X:%02X:%02X", MAC2STR(event.mac));
             Serial.printf("Mac adress: %s\n", lastMac);
-            waitingDHCP = true;
+            macAddress currentMacAddress;
+            memcpy(currentMacAddress.value, event.mac, 6);
+            bool found = false;
+            for (size_t i = 0; i < lastMacs.size(); i++) {
+                if (std::equal(std::begin(lastMacs[i].value), std::end(lastMacs[i].value), std::begin(event.mac))) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                lastMacs.push_back(currentMacAddress);
+
+            Serial.print("Number of waiting devices : ");
+            Serial.println(lastMacs.size());
+        });
+
+    clientDisconnected = WiFi.onSoftAPModeStationDisconnected([](const WiFiEventSoftAPModeStationDisconnected& event) {
+            Serial.println("Station disconnected");
+            char lastMac[18];
+            sprintf(lastMac, "%02X:%02X:%02X:%02X:%02X:%02X", MAC2STR(event.mac));
+            Serial.printf("Mac adress: %s\n", lastMac);
+            macAddress currentMacAddress;
+            memcpy(currentMacAddress.value, event.mac, 6);
+            for (size_t i = 0; i < lastMacs.size(); i++) {
+                if (std::equal(std::begin(lastMacs[i].value), std::end(lastMacs[i].value), std::begin(event.mac))) {
+                    lastMacs.erase(lastMacs.begin() + i);
+                    break;
+                }
+            }
         });
 
     while (!Serial)  // Wait for the serial connection to be establised.
         delay(50);
 
-
-    pinMode(kRecv1Pin, INPUT);
-    //irrecv1.enableIRIn();  // Start the receiver1
-}
-
-void  ircode(decode_results* results)
-{
-    // Panasonic has an Address
-    if (results->decode_type == PANASONIC) {
-        //Serial.print(results->panasonicAddress, HEX);
-        //Serial.print(":");
+    for (size_t i = 0; i < nbOfReceivers; i++) {
+        pinMode(kRecvPins[i], INPUT);
     }
-
-    // Print Code
-    Serial.print(results->value, HEX);
-    Serial.print("\nRaw buffer : ");
-    for (size_t i = 0; i < results->rawlen; i++) {
-        Serial.print(results->rawbuf[i]);
-        Serial.print('-');
-    }
-}
-
-//+=============================================================================
-// Display encoding type
-//
-void  encoding(decode_results* results) {
-
-    switch (results->decode_type) {
-    
-        case NEC:          Serial.print("NEC");           break;
-        case SONY:         Serial.print("SONY");          break;
-        case RC5:          Serial.print("RC5");           break;
-        case RC6:          Serial.print("RC6");           break;
-        case DISH:         Serial.print("DISH");          break;
-        case SHARP:        Serial.print("SHARP");         break;
-        case JVC:          Serial.print("JVC");           break;
-        case SANYO:        Serial.print("SANYO");         break;
-        case MITSUBISHI:   Serial.print("MITSUBISHI");    break;
-        case SAMSUNG:      Serial.print("SAMSUNG");       break;
-        case LG:           Serial.print("LG");            break;
-        case WHYNTER:      Serial.print("WHYNTER");       break;
-        case AIWA_RC_T501: Serial.print("AIWA_RC_T501");  break;
-        case PANASONIC:    Serial.print("PANASONIC");     break;
-        case UNKNOWN:
-        default:           Serial.print("UNKNOWN");       break;
-    }
-}
-
-void  dumpInfo(decode_results* results){
-    // Show Encoding standard
-    Serial.print("Encoding : ");
-    encoding(results);
-
-    // Show Code & length
-    Serial.print(", Code : ");
-    ircode(results);
-    Serial.print(" (");
-    Serial.print(results->bits, DEC);
-    Serial.println(" bits)");
 }
 
 
 void loop() {
-    if (waitingDHCP) {
+    if (lastMacs.size() > 0) {
         String cb;
-        if (deviceIP(lastMac, cb)) {
+        Serial.print("Remaing device to assign : ");
+        Serial.println(lastMacs.size());
+        if (deviceIP(lastMacs.back(), cb)) {
+            lastMacs.erase(lastMacs.end());
             Serial.println("Ip address :");
             Serial.println(cb); //do something
             unsigned int indexToUse = nextAvailableIndex;
@@ -179,8 +173,8 @@ void loop() {
             Udp.write((char*)&irParams[indexToUse], sizeof(IRParam));
             Udp.endPacket();
 
-            Serial.println("Device ID");
-            Serial.print(indexToUse);
+            Serial.print("Device ID ");
+            Serial.println(indexToUse);
 
             if (nextAvailableIndex == indexToUse) {
                 idToIp[indexToUse] = cb;
@@ -189,66 +183,33 @@ void loop() {
                 nextAvailableIndex++;
             }
         }
+        else {
+            delay(100);
+        }
+        return;
     }
-    //if (irrecv1.decode(&results)) {
-    //    if (results.decode_type == SONY) {
-    //        foundIndex = FindIndex(availableIds, 4, results.value);
-    //        if (foundIndex != -1) {
-    //            sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
-    //            Serial.print(buffer);
-    //        }
-    //    }
-    //    else if (results.decode_type == NEC) {
-    //        uint16_t decodedValue = (((results.value >> 24) & 0xFF) << 8) + ((results.value >> 8) & 0xFF);
-    //        foundIndex = FindIndex(availableIds, 4, decodedValue);
-    //        if (foundIndex != -1) {
-    //            sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
-    //            Serial.print(buffer);
-    //        }
-    //    }
-    //    else {
-    //        dumpInfo(&results);
-    //    }
-    //    irrecv1.resume();  // Receive the next value
-    //}
-    if (digitalRead(kRecv1Pin) != lastState) {
-        lastState = !lastState;
-        if (lastMicros != 0) {
-            unsigned long currentTime = micros() - lastMicros;
-            if (currentTime < 500) return; //Skipping this one, too low
-            if (currentTime < 4500) {
-                timeBuffer[currentIndex] = micros() - lastMicros;
-                currentIndex = ++currentIndex%bufferSize;
-                /*if (currentIndex == 0) {
-                    Serial.print("\nTime buffer : ");
-                    for (size_t i = 0; i < bufferSize; i++) {
-                        Serial.print(timeBuffer[i]);
-                        Serial.print("-");
-                    }
-                }*/
-                int foundIndex = compareSequence();
-                if (foundIndex != -1) {
-                    if (millis() - idLastMillis[foundIndex] > 1000) {
-                        sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
-                        Serial.print(buffer);
-                    }
-                    idLastMillis[foundIndex] = millis();
-                    //Serial.print("Found a match with a sequence ! (");
-                    //Serial.print(foundIndex);
-                    //Serial.print(")\n");
-                    //Serial.print(millis());
 
-                    ///*Serial.print("\nTime buffer : ");
-                    //for (size_t i = 0; i < bufferSize; i++) {
-                    //    Serial.print(timeBuffer[i]);
-                    //    Serial.print("-");
-                    //}*/
-                    //Serial.println();
-                    //Serial.flush();
+    for (size_t i = 0; i < nbOfReceivers; i++) {
+        if (digitalRead(kRecvPins[i]) != lastStates[i]) {
+            lastStates[i] = !lastStates[i];
+            if (lastMicros[i] != 0) {
+                unsigned long currentTime = micros() - lastMicros[i];
+                if (currentTime < 500) return; //Skipping this one, too low
+                if (currentTime < 4500) {
+                    recvBuffers[i][currentIndex] = micros() - lastMicros[i];
+                    currentIndex = ++currentIndex % bufferSize;
+                    int foundIndex = compareSequence(i);
+                    if (foundIndex != -1) {
+                        if (millis() - idLastMillis[foundIndex] > 1000) {
+                            sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
+                            Serial.print(buffer);
+                        }
+                        idLastMillis[foundIndex] = millis();
+                    }
                 }
             }
+            lastMicros[i] = micros();
         }
-        lastMicros = micros();
     }
 
     if (Serial.available() > 0) {
@@ -290,14 +251,13 @@ void loop() {
             }
         }
     }
-    //delay(10);
 }
-int compareSequence() {
+int compareSequence(size_t receiverIndex) {
     bool error = false;
     for (size_t j = 0; j < (sizeof(irParams) / sizeof(*irParams)); j++) {
         for (size_t k = 0; k < irParams[j].pulsesCount; k++) {
             for (size_t i = (currentIndex + k) % irParams[j].pulsesCount, step = 0; step < irParams[j].pulsesCount; step++) {
-                if (irParams[j].pulsesWidths[step] < timeBuffer[i] - tolerance || irParams[j].pulsesWidths[step] > timeBuffer[i] + tolerance) {
+                if (irParams[j].pulsesWidths[step] < recvBuffers[receiverIndex][i] - tolerance || irParams[j].pulsesWidths[step] > recvBuffers[receiverIndex][i] + tolerance) {
                     error = true;
                     break;
                 }
@@ -320,16 +280,14 @@ void sendColor(String ip, int r, int g, int b) {
     Udp.endPacket();
 }
 
-boolean deviceIP(char* mac_device, String& cb) {
+boolean deviceIP(macAddress mac_address, String& cb) {
 
     struct station_info* station_list = wifi_softap_get_station_info();
-
+    
     while (station_list != NULL) {
         char station_mac[18] = { 0 }; sprintf(station_mac, "%02X:%02X:%02X:%02X:%02X:%02X", MAC2STR(station_list->bssid));
         String station_ip = IPAddress((&station_list->ip)->addr).toString();
-
-        if (strcmp(mac_device, station_mac) == 0) {
-            waitingDHCP = false;
+        if (std::equal(std::begin(mac_address.value), std::end(mac_address.value), std::begin(station_list->bssid))) {
             cb = station_ip;
             return true;
         }
