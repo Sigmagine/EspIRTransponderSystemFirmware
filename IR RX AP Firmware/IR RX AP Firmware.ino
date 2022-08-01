@@ -76,43 +76,43 @@ const uint32_t carsColors[3] = {
 
 const IRParam irParams[3] = {
     {
-        20,
+        10,
         bufferSize,
         {
-            3000,   1000,
-            3000,   1000,
-            1000,   3000,
-            1000,   0,
+            1500,   500,
+            1500,   500,
+            500,   1500,
+            500,      0,
+            0,        0,
+            0
+        }
+    },
+    {
+        10,
+        bufferSize,
+        {
+            1800,   1000,
+            1000,   500,
+            1500,   1000,
+            500,    0,
             0,      0,
             0
         }
     },
     {
-        20,
+        10,
         bufferSize,
         {
-            4000,   2000,
-            2000,   1000,
-            3000,   2000,
+            500,    1800,
+            500,    1000,
+            1000,   500,
             1000,   0,
-            0,      0,
-            0
-        }
-    },
-    {
-        20,
-        bufferSize,
-        {
-            1000,   5000,
-            1000,   2000,
-            2000,   1000,
-            2000,   0,
             0,      0,
             0
         }
     }
 };
-const uint16_t tolerance = 500;
+const uint16_t tolerance = 100;
 
 
 void setup() {
@@ -234,18 +234,22 @@ void loop() {
     for (size_t i = 0; i < nbOfReceivers; i++) {
         bool state = digitalRead(kRecvPins[i]);
         if (state != lastStates[i]) {
-            lastStates[i] = state;
             if (lastMicros[i] != 0) {
                 unsigned long currentTime = micros() - lastMicros[i];
-                if (currentTime < 500) return; //Skipping this one, too low
-                if (currentTime < 5500) {
+                if (currentTime < tolerance) {
+                    //Ignoring this value
+                    lastMicros[i] = micros() - currentTime;
+                    return; //Skipping this one, too low
+                }
+                lastStates[i] = state;
+                if (currentTime < 2500) {
                     recvBuffers[i][currentIndex] = currentTime;
                     recvValues[i][currentIndex] = state;
                     currentIndex = ++currentIndex % bufferSize;
                     int foundIndex = compareSequence(i);
                     if (foundIndex != -1) {
-                        if (millis() - idLastMillis[foundIndex] > 1000) {
-                            sprintf(buffer, "[SF%02u]\n", foundIndex + 1);
+                        if (millis() - idLastMillis[foundIndex] > cooldownMs) {
+                            sprintf(buffer, "[SF%02u]\n", foundIndex + 1, i);
                             Serial.print(buffer);
                             leds.fill(carsColors[foundIndex], 0, numLeds);
                             leds.show();
