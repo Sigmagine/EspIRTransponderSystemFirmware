@@ -18,6 +18,7 @@
 #define NEOPIXEL_PIN 0
 
 struct IRParams {
+    uint32_t color;
     uint16_t delay = 20;
     uint16_t pulsesCount = 0;
     uint16_t pulsesWidths[11] = {
