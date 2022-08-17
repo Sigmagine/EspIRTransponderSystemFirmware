@@ -179,7 +179,8 @@ IRDetector irDetectors[2] = {
 
 
 
-String idToIp[2] = { "", "" };
+
+std::vector<String> idToIp;
 std::map<String, unsigned int> ipToId;
 
 unsigned int nextAvailableIndex = 0;
@@ -320,7 +321,7 @@ void loop() {
             Serial.println(indexToUse);
 
             if (nextAvailableIndex == indexToUse) {
-                idToIp[indexToUse] = cb;
+                idToIp.push_back(cb);
                 ipToId.emplace(cb, indexToUse);
                 nextAvailableIndex++;
             }
@@ -351,11 +352,11 @@ void loop() {
 
             unsigned long currentTime = us - irDetector->lastMicros;
 
-            if (currentTime < tolerance) {
+           /* if (currentTime < tolerance) {
                 //Ignoring this value
                 irDetector->lastMicros = us - currentTime;
                 continue; //Skipping this one, too low
-            }
+            }*/
 
             irDetector->lastState = state;
 
@@ -372,8 +373,6 @@ void loop() {
                     if (ms > irDetector->lastLedMillis){
                         leds.fill(racer->irParams.color, irDetector->ledIndex, 8);
                         ledsChanged = true;
-                        
-                        
                     }
                     irDetector->lastLedMillis = ms + cooldownMs;
                     
