@@ -323,7 +323,7 @@ void loop() {
             Serial.println(ip); //do something
             unsigned int indexToUse = UINT_MAX;
             for (size_t i = 0; i < (sizeof(racerEEPromConfig.racersMacAddresses) / sizeof(macAddress)); i++) {
-                if (racerEEPromConfig.racersMacAddresses[i] == mac && !racerReconnected[i]) {
+                if (racerEEPromConfig.racersMacAddresses[i] == mac) {
                     /*Serial.print("Found data for this racer ! ");
                     Serial.println(i);*/
                     indexToUse = i;
