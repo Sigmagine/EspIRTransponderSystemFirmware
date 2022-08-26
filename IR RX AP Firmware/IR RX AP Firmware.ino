@@ -502,7 +502,7 @@ void sendColor(String ip, int r, int g, int b) {
     Udp.endPacket();
 }
 
-boolean deviceIP(macAddress mac_address, String& cb) {
+boolean deviceIP(macAddress mac_address, String& ip) {
 
     struct station_info* station_list = wifi_softap_get_station_info();
     
@@ -510,7 +510,7 @@ boolean deviceIP(macAddress mac_address, String& cb) {
         char station_mac[18] = { 0 }; sprintf(station_mac, "%02X:%02X:%02X:%02X:%02X:%02X", MAC2STR(station_list->bssid));
         String station_ip = IPAddress((&station_list->ip)->addr).toString();
         if (std::equal(std::begin(mac_address.value), std::end(mac_address.value), std::begin(station_list->bssid))) {
-            cb = station_ip;
+            ip = station_ip;
             return true;
         }
 
@@ -518,7 +518,7 @@ boolean deviceIP(macAddress mac_address, String& cb) {
     }
 
     wifi_softap_free_station_info();
-    cb = "DHCP not ready or bad MAC address";
+    ip = "DHCP not ready or bad MAC address";
     return false;
 }
 
