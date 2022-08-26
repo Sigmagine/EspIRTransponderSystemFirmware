@@ -12,6 +12,7 @@
 #include <WiFiUdp.h>
 #include <map>
 #include <Adafruit_NeoPixel.h>
+#include <EEPROM.h>
 
 
 const size_t numLeds = 16;
@@ -179,13 +180,6 @@ IRDetector irDetectors[2] = {
     IRDetector(14,8) //D5
 };
 
-
-
-
-
-std::vector<String> idToIp;
-std::map<String, unsigned int> ipToId;
-
 unsigned int nextAvailableIndex = 0;
 
 String serialReadString;
@@ -196,17 +190,33 @@ WiFiEventHandler clientDisconnected;
 
 struct macAddress {
     uint8 value[6];
+
+    inline bool operator==(const macAddress& other) {
+        for (size_t i = 0; i < 6; i++) {
+            if (this->value[i] != other.value[i]) return false;
+        }
+        return true;
+    }
 };
 std::vector<macAddress> lastMacs;
 
-WiFiUDP Udp;
+struct RacerEEPromAssignations {
+    macAddress racersMacAddresses[8];
+};
 
+WiFiUDP Udp;
+RacerEEPromAssignations racerEEPromConfig;
+bool racerReconnected[8] = { false };
 
 void setup() {
 
     Serial.begin(115200);
     Serial.println();
 
+    EEPROM.begin(512); //Initialasing EEPROM
+
+    EEPROM.get(0, racerEEPromConfig);
+    
     Serial.print("Setting soft-AP ... ");
     Serial.println(WiFi.softAP(ssid, password) ? "Ready" : "Failed!");
 
@@ -299,35 +309,51 @@ void loop() {
 
 
     if (lastMacs.size() > 0) {
-        String cb;
+        String ip;
+        macAddress mac = lastMacs.back();
         Serial.print("Remaing device to assign : ");
         Serial.println(lastMacs.size());
-        if (deviceIP(lastMacs.back(), cb)) {
+        if (deviceIP(mac, ip)) {
             lastMacs.erase(lastMacs.end());
             if (lastMacs.size() == 0) {
                 leds.fill(leds.Color(255, 255, 255), 0, numLeds);
                 ledsChanged = true;
             }
             Serial.println("Ip address :");
-            Serial.println(cb); //do something
-            unsigned int indexToUse = nextAvailableIndex;
-            auto foundId = ipToId.find(cb);
-            if (foundId != ipToId.end()) {
-                Serial.println("Ip already registered !");
-                indexToUse = foundId->second;
+            Serial.println(ip); //do something
+            unsigned int indexToUse = UINT_MAX;
+            for (size_t i = 0; i < (sizeof(racerEEPromConfig.racersMacAddresses) / sizeof(macAddress)); i++) {
+                if (racerEEPromConfig.racersMacAddresses[i] == mac && !racerReconnected[i]) {
+                    /*Serial.print("Found data for this racer ! ");
+                    Serial.println(i);*/
+                    indexToUse = i;
+                    break;
+                }
             }
-            Udp.beginPacket(cb.c_str(), 1212);
+            if (indexToUse == UINT_MAX) {
+                for (size_t i = 0; i < (sizeof(racerReconnected) / sizeof(bool)); i++) {
+                    if (!racerReconnected[i]) {
+                        /*Serial.print("No data found, free index found ! ");
+                        Serial.println(i);*/
+                        indexToUse = i;
+                        break;
+                    }
+                }
+            }
+            //TODO secure if indexToUse still equals to UINT_MAX
+
+            Udp.beginPacket(ip.c_str(), 1212);
             Udp.write((char*)&racers[indexToUse].irParams, sizeof(IRParams));
             Udp.endPacket();
 
+            racerEEPromConfig.racersMacAddresses[indexToUse] = mac;
+            racerReconnected[indexToUse] = true;
+            EEPROM.put(0, racerEEPromConfig);
+
+            EEPROM.commit();
+
             Serial.print("Device ID ");
             Serial.println(indexToUse);
-
-            if (nextAvailableIndex == indexToUse) {
-                idToIp.push_back(cb);
-                ipToId.emplace(cb, indexToUse);
-                nextAvailableIndex++;
-            }
 
         } else {
             delay(100);
@@ -365,7 +391,6 @@ void loop() {
             irDetector->lastState = state;
 
             if (currentTime < delayMs * 1000 * 2) {
-
                 irDetector->buffer[irDetector->currentIndex] = currentTime;
                 irDetector->states[irDetector->currentIndex] = state;
                 irDetector->currentIndex = ++irDetector->currentIndex % bufferSize;
@@ -390,7 +415,6 @@ void loop() {
             else {
                 memset(irDetector->buffer, 0, sizeof (irDetector->buffer) / sizeof(unsigned long));
                 memset(irDetector->states, 0, sizeof(irDetector->states) / sizeof(int));
-
             }
 
             irDetector->lastMicros = us;
