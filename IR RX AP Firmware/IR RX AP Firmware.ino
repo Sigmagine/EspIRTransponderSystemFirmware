@@ -169,6 +169,7 @@ struct IRDetector {
     int lastState = HIGH;
     unsigned long lastMicros = 0;
     unsigned long lastLedMillis = 0;
+    Racer* lastRacer = NULL;
 };
 
 IRDetector irDetectors[2] = {
@@ -343,6 +344,7 @@ void loop() {
             leds.fill(leds.Color(0, 0, 0), irDetector->ledIndex, 8);
             ledsChanged = true;
             irDetector->lastLedMillis = 0;
+            irDetector->lastRacer = NULL;
         }
 
         bool state = digitalRead(irDetector->pin);
@@ -370,7 +372,8 @@ void loop() {
 
                 if (racer != NULL) {
 
-                    if (ms > irDetector->lastLedMillis){
+                    if (ms > irDetector->lastLedMillis || irDetector->lastRacer!=racer){
+                        irDetector->lastRacer = racer;
                         leds.fill(racer->irParams.color, irDetector->ledIndex, 8);
                         ledsChanged = true;
                     }
