@@ -1,7 +1,7 @@
 /*
  Name:		IR_RX_AP_Firmware.ino
  Created:	5/10/2021 9:02:07 PM
- Authors:	nicolas.obre, samuel.tranchet
+ Authors:	nicolas.obre (chibraltar), samuel.tranchet (mortecouille)
 */
 
 #include <Arduino.h>
@@ -25,6 +25,8 @@ const unsigned long cooldownMs = 1000;
 const size_t bufferSize = 5;
 
 const uint16_t tolerance = 200;
+
+const uint16_t delayMs = 10;
 
 
 const uint8_t pinLed = 0;
@@ -65,7 +67,7 @@ struct Racer {
 Racer racers[8] = {
     IRParams{
         leds.Color(0, 0, 255),
-        10,
+        delayMs,
         bufferSize,
         {
             1613, 1613, 1613, 1613, 1613, 0, 0, 0, 0, 0, 0
@@ -73,7 +75,7 @@ Racer racers[8] = {
     },
     IRParams{
          leds.Color(0, 255, 255),
-        10,
+        delayMs,
         bufferSize,
         {
             863,1238,1613,1613,863, 0, 0, 0, 0, 0, 0
@@ -81,7 +83,7 @@ Racer racers[8] = {
     },
     IRParams{
         leds.Color(0, 255, 0),
-        10,
+        delayMs,
         bufferSize,
         {
             863,863,1238,863,863, 0, 0, 0, 0, 0, 0
@@ -89,7 +91,7 @@ Racer racers[8] = {
     },
     IRParams{
         leds.Color(255, 255, 0),
-        10,
+        delayMs,
         bufferSize,
         {
             488,1613,488,1613,488, 0, 0, 0, 0, 0, 0
@@ -97,7 +99,7 @@ Racer racers[8] = {
     },
     IRParams{
         leds.Color(255, 127, 0),
-        10,
+        delayMs,
         bufferSize,
         {
             488,1238,1613,488,1238, 0, 0, 0, 0, 0, 0
@@ -105,7 +107,7 @@ Racer racers[8] = {
     },
     IRParams{
         leds.Color(255, 0, 0),
-        10,
+        delayMs,
         bufferSize,
         {
             488,863,1613,1238,488, 0, 0, 0, 0, 0, 0
@@ -113,7 +115,7 @@ Racer racers[8] = {
     },
     IRParams{
         leds.Color(128, 0, 255),
-        10,
+        delayMs,
         bufferSize,
         {
             1238,488,1613,488,1613, 0, 0, 0, 0, 0, 0
@@ -121,7 +123,7 @@ Racer racers[8] = {
     },
     IRParams{
         leds.Color(255, 0, 255),
-        10,
+        delayMs,
         bufferSize,
         {
             488,488,863,488,488, 0, 0, 0, 0, 0, 0
@@ -362,7 +364,7 @@ void loop() {
 
             irDetector->lastState = state;
 
-            if (currentTime < 2500) {
+            if (currentTime < delayMs * 1000 * 2) {
 
                 irDetector->buffer[irDetector->currentIndex] = currentTime;
                 irDetector->states[irDetector->currentIndex] = state;
@@ -384,6 +386,11 @@ void loop() {
                     }
                     racer->idLastMillis = ms + cooldownMs; //the detected emmiter must leave the area
                 }
+            }
+            else {
+                memset(irDetector->buffer, 0, sizeof (irDetector->buffer) / sizeof(unsigned long));
+                memset(irDetector->states, 0, sizeof(irDetector->states) / sizeof(int));
+
             }
 
             irDetector->lastMicros = us;
